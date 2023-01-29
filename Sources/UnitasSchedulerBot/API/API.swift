@@ -84,9 +84,21 @@ class UnitasApi: UserDataContainer {
         return try parser.parseGroups(input: html)
     }
     
-    func getScheduler(for semesterId: Int64, and groupId: Int64) throws -> [SchedulerDay] {
+    func getScheduler(forSemesterId semesterId: Int64, groupId: Int64) throws -> [SchedulerDay] {
         let html = try getHtml(withParameters: .group(scheduleSemesterId: Int(semesterId), studentGroupId: Int(groupId)))
         return try parser.parseScheduler(input: html)
+    }
+    
+    func getSchedulerCurrentWeek(forSemesterId semesterId: Int64, groupId: Int64) throws -> [SchedulerDay] {
+        let html = try getHtml(withParameters: .group(scheduleSemesterId: Int(semesterId), studentGroupId: Int(groupId)))
+        let week = try parser.parseCurrentWeek(input: html)
+        let days = try parser.parseScheduler(input: html).map({SchedulerDay(items: $0.items.filter({ item in
+            guard let info = item.info else {
+                return true
+            }
+            return info.weeks.contains(where: {$0 == week})
+        }), name: $0.name)})
+        return days
     }
 }
 
@@ -97,5 +109,11 @@ extension Dictionary {
             result.append((key, value))
         }
         return result
+    }
+}
+
+extension Array where Element == SchedulerDay {
+    func withoutNoInfo() -> Self {
+        return self.map({SchedulerDay(items: $0.items.filter({$0.info != nil}), name: $0.name)})
     }
 }

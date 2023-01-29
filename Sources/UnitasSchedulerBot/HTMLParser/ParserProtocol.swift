@@ -32,4 +32,5 @@ protocol ParserProtocol {
     func parseScheduler(input: String) throws -> [SchedulerDay]
     func parseGroups(input: String) throws -> [Group]
     func parseSemesters(input: String) throws -> [Semester]
+    func parseCurrentWeek(input: String) throws -> Int
 }

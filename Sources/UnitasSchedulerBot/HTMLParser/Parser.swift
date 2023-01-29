@@ -8,6 +8,7 @@ class HTMLParser: ParserProtocol {
         
         case findText
         case findSchedulerTable
+        case findCurrentWeek
     }
     
     func parse(table: Element) throws -> [SchedulerDay] {
@@ -76,6 +77,15 @@ class HTMLParser: ParserProtocol {
         })
     }
     
+    func parseCurrentWeek(input: String) throws -> Int {
+        let doc: Document = try SwiftSoup.parse(input)
+        guard let text = try doc.getElementsByClass("col-lg-3").first()?.text().split(separator: "№").last,
+              let week = Int(text) else {
+            throw ParseError.findCurrentWeek
+        }
+        return week
+    }
+    
 }
 
 extension Element {
@@ -105,7 +115,7 @@ extension Element {
         return table
     }
     
-    fileprivate func getTextFormTd() throws -> String {
+    fileprivate func getTextWeek() throws -> String {
         guard let text = try self.select("p").first()?.text() else {
             throw HTMLParser.ParseError.findText
         }

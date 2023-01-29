@@ -8,28 +8,19 @@ final class DefaultBotHandlers {
         Self.api = .init(client: app.client, parser: HTMLParser())
         commandTestHandler(app: app, bot: bot)
         commandSetSemester(app: app, bot: bot)
-        commandShowButtonsHandler(app: app, bot: bot)
         buttonActionHandler(app: app, bot: bot)
         commandSetGroup(app: app, bot: bot)
         commandShowScheduler(app: app, bot: bot)
+        _ = try? bot.setMyCommands(params: .init(commands: [
+            .init(command: "/set_group", description: "Установка группы. Использование: /set_group ПРО-424"),
+            .init(command: "/set_semester", description: "Установка семестра. Использование: выбрать семестр из списка"),
+            .init(command: "/show", description: "Показывает расписание на семестр"),
+            .init(command: "/show_week", description: "Показывает расписание на неделю"),
+            .init(command: "/show_today", description: "Показывает сегодняшнее расписание"),
+        ]))
     }
     
     private static var api: UnitasApi!
-    
-    private static func commandStartHandler(app: Vapor.Application, bot: TGBotPrtcl) {
-        let handler = TGCommandHandler(commands: ["/show_buttons"]) { update, bot in
-            guard let userId = update.message?.from?.id else { fatalError("user id not found") }
-            let semesters = try api.getSemesters()
-            let buttons: [[TGInlineKeyboardButton]] = semesters.map({[TGInlineKeyboardButton(text: "\($0.name)",
-                                                                                             callbackData: "semester \(userId) \($0.id)")]})
-            let keyboard: TGInlineKeyboardMarkup = .init(inlineKeyboard: buttons)
-            let params: TGSendMessageParams = .init(chatId: .chat(userId),
-                                                    text: "Keyboard activ",
-                                                    replyMarkup: .inlineKeyboardMarkup(keyboard))
-            try bot.sendMessage(params: params)
-        }
-        bot.connection.dispatcher.add(handler)
-    }
 
     private static func commandTestHandler(app: Vapor.Application, bot: TGBotPrtcl) {
         let handler = TGCommandHandler(commands: ["/test"]) { update, bot in
@@ -38,43 +29,8 @@ final class DefaultBotHandlers {
         bot.connection.dispatcher.add(handler)
     }
     
-    private static func commandSetSemester(app: Vapor.Application, bot: TGBotPrtcl) {
-        let handler = TGCommandHandler(commands: ["/semester"]) { update, bot in
-            guard let text = update.message?.text else {
-                try update.message?.reply(text: "Error", bot: bot)
-                return
-            }
-            let splitText = text.split(separator: " ")
-            if splitText.count == 1 {
-                var result = ""
-                for semester in try api.getSemesters() {
-                    result = result + "\(semester.id) - \(semester.name)\n"
-                }
-                try update.message?.reply(text: result, bot: bot)
-            }
-            if splitText.count == 2 {
-                guard let semesterId = Int64(splitText.last!) else {
-                    try update.message?.reply(text: "Нужно передать число!", bot: bot)
-                    return
-                }
-                let semesters = try api.getSemesters()
-                if semesters.contains(where: {$0.id == semesterId}) {
-                    guard let id = update.message?.from?.id else {
-                        try update.message?.reply(text: "Внутренняя ошибка", bot: bot)
-                        return
-                    }
-                    api.setSemesterId(key: id, value: semesterId)
-                    try update.message?.reply(text: "ok", bot: bot)
-                } else {
-                    try update.message?.reply(text: "Неправельный id семестра", bot: bot)
-                }
-            }
-        }
-        bot.connection.dispatcher.add(handler)
-    }
-    
     private static func commandSetGroup(app: Vapor.Application, bot: TGBotPrtcl) {
-        let handler = TGCommandHandler(commands: ["/group"]) { update, bot in
+        let handler = TGCommandHandler(commands: ["/set_group"]) { update, bot in
             guard let text = update.message?.text else {
                 try update.message?.reply(text: "Error", bot: bot)
                 return
@@ -98,20 +54,22 @@ final class DefaultBotHandlers {
                         try update.message?.reply(text: "Ок", bot: bot)
                     }
                 }
+            } else {
+                try update.message?.reply(text: "Необходимо передать название группы. Например: /set_group ПРО-424", bot: bot)
             }
         }
         bot.connection.dispatcher.add(handler)
     }
     
-    private static func commandShowButtonsHandler(app: Vapor.Application, bot: TGBotPrtcl) {
-        let handler = TGCommandHandler(commands: ["/show_buttons"]) { update, bot in
+    private static func commandSetSemester(app: Vapor.Application, bot: TGBotPrtcl) {
+        let handler = TGCommandHandler(commands: ["/set_semester"]) { update, bot in
             guard let userId = update.message?.from?.id else { fatalError("user id not found") }
             let semesters = try api.getSemesters()
             let buttons: [[TGInlineKeyboardButton]] = semesters.map({[TGInlineKeyboardButton(text: "\($0.name)",
                                                                                              callbackData: "semester \(userId) \($0.id)")]})
             let keyboard: TGInlineKeyboardMarkup = .init(inlineKeyboard: buttons)
             let params: TGSendMessageParams = .init(chatId: .chat(userId),
-                                                    text: "Keyboard activ",
+                                                    text: "",
                                                     replyMarkup: .inlineKeyboardMarkup(keyboard))
             try bot.sendMessage(params: params)
         }
@@ -145,19 +103,80 @@ final class DefaultBotHandlers {
                 try update.message?.reply(text: "Необходимо установить семестр и группу", bot: bot)
                 return
             }
-            for day in (try? api.getScheduler(for: semesterId, and: groupId)) ?? [] {
-                var result = "\(day.name)\n"
-                for item in day.items {
-                    guard let info = item.info else {
-                        result = result + "Пусто\n"
-                        continue
-                    }
-                    result = result + "\(info.subject) \(info.lecturer)\n"
-                }
-                try update.message?.reply(text: result, bot: bot)
+            for day in (try? api.getScheduler(forSemesterId: semesterId, groupId: groupId).withoutNoInfo()) ?? [] {
+                try update.message?.reply(text: day.toPrettyString(), bot: bot)
             }
         }
+        
+        let handlerWeek = TGCommandHandler(commands: ["/show_week"]) { update, bot in
+            guard let userId = update.message?.from?.id else { fatalError("user id not found") }
+            guard let groupId = api.getGroupId(key: userId), let semesterId = api.getSemesterId(key: userId) else {
+                try update.message?.reply(text: "Необходимо установить семестр и группу", bot: bot)
+                return
+            }
+            for day in (try? api.getSchedulerCurrentWeek(forSemesterId: semesterId, groupId: groupId).withoutNoInfo()) ?? [] {
+                try update.message?.reply(text: day.toPrettyString(showWeek: false), bot: bot)
+            }
+        }
+        
+        let handlerToday = TGCommandHandler(commands: ["/show_today"]) { update, bot in
+            guard let userId = update.message?.from?.id else { fatalError("user id not found") }
+            guard let groupId = api.getGroupId(key: userId), let semesterId = api.getSemesterId(key: userId) else {
+                try update.message?.reply(text: "Необходимо установить семестр и группу", bot: bot)
+                return
+            }
+            guard let weekday = Calendar.current.component(.weekday, from: Date()).toRuString() else {
+                debugPrint("weekday id is incorrect")
+                return
+            }
+            for day in (try? api.getSchedulerCurrentWeek(forSemesterId: semesterId, groupId: groupId).withoutNoInfo()) ?? [] {
+                if day.name == weekday {
+                    try update.message?.reply(text: day.toPrettyString(showWeek: false), bot: bot)
+                }
+            }
+        }
+        
         bot.connection.dispatcher.add(handler)
+        bot.connection.dispatcher.add(handlerWeek)
+        bot.connection.dispatcher.add(handlerToday)
     }
 }
 
+extension SchedulerDay {
+    func toPrettyString(showWeek: Bool = true) -> String {
+        var result = "\(self.name)\n"
+        for item in self.items {
+            result = result + " - \(item.timeRange)\n"
+            guard let info = item.info else {
+                result = result + " -- Пусто\n"
+                continue
+            }
+            result = result + " -- \(info.subject)\n"
+            if showWeek {
+                result = result + " --- Недели: \(info.weeks)\n"
+            }
+            result = result + " --- \(info.lecturer)\n"
+            result = result + " --- \(info.type) \(info.audience)\n"
+        }
+        
+        if self.items.count == 0 {
+            result = result + " - Пусто\n"
+        }
+        return result
+    }
+}
+
+extension Int {
+    func toRuString() -> String? {
+        let transform =
+        [
+            1: "Понедельник",
+            2: "Вторник",
+            3: "Среда",
+            4: "Пятница",
+            5: "Четверг",
+            6: "Суббота"
+        ]
+        return transform[self]
+    }
+}
