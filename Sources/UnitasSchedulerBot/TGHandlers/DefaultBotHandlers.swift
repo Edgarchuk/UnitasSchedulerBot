@@ -5,7 +5,7 @@ import telegram_vapor_bot
 final class DefaultBotHandlers {
 
     static func addHandlers(app: Vapor.Application, bot: TGBotPrtcl) {
-        Self.api = .init(client: app.client, parser: StringParser())
+        Self.api = .init(client: app.client, parser: HTMLParser())
         commandTestHandler(app: app, bot: bot)
         commandSetSemester(app: app, bot: bot)
         commandShowButtonsHandler(app: app, bot: bot)
@@ -15,6 +15,21 @@ final class DefaultBotHandlers {
     }
     
     private static var api: UnitasApi!
+    
+    private static func commandStartHandler(app: Vapor.Application, bot: TGBotPrtcl) {
+        let handler = TGCommandHandler(commands: ["/show_buttons"]) { update, bot in
+            guard let userId = update.message?.from?.id else { fatalError("user id not found") }
+            let semesters = try api.getSemesters()
+            let buttons: [[TGInlineKeyboardButton]] = semesters.map({[TGInlineKeyboardButton(text: "\($0.name)",
+                                                                                             callbackData: "semester \(userId) \($0.id)")]})
+            let keyboard: TGInlineKeyboardMarkup = .init(inlineKeyboard: buttons)
+            let params: TGSendMessageParams = .init(chatId: .chat(userId),
+                                                    text: "Keyboard activ",
+                                                    replyMarkup: .inlineKeyboardMarkup(keyboard))
+            try bot.sendMessage(params: params)
+        }
+        bot.connection.dispatcher.add(handler)
+    }
 
     private static func commandTestHandler(app: Vapor.Application, bot: TGBotPrtcl) {
         let handler = TGCommandHandler(commands: ["/test"]) { update, bot in

@@ -2,45 +2,47 @@
 import SwiftSoup
 import Foundation
 
-class StringParser: ParserProtocol {
+class HTMLParser: ParserProtocol {
     
-    enum ParseError: Error {
+    fileprivate enum ParseError: Error {
         
-        case errorInFindText
+        case findText
+        case findSchedulerTable
     }
     
     func parse(table: Element) throws -> [SchedulerDay] {
         var result: [SchedulerDay] = .init()
         var currentDay: Optional<SchedulerDay> = nil
-        for item in try table.select("tr") {
-            let tds = try item.select("td")
-            if tds.count == 1 {
-                let text = try tds.first()!.text()
-                if let currentDay = currentDay {
-                    result.append(currentDay)
-                }
-                currentDay = .init(items: [], name: text)
-            }
-            if tds.count == 2 {
-                let time = try tds.first()!.getTextFormTd()
-                currentDay?.items.append(.init(timeRange: time, info: nil))
-            }
-            if tds.count > 2 {
-                let time = try tds.first()!.getTextFormTd()
-                let weeks = try tds[1].getTextFormTd().split(separator: " ").map({Int($0)!})
-                let subject = try tds[2].getTextFormTd()
-                let type = try tds[3].getTextFormTd()
-                let lecturer = try tds[4].getTextFormTd()
-                let audience = try tds[5].getTextFormTd()
-                currentDay?.items.append(.init(
-                    timeRange: time, info: .init(weeks: weeks, subject: subject, type: type, lecturer: lecturer, audience: audience)
-                ))
+        
+        func saveCurrentDayIfNeeded() {
+            if let currentDay = currentDay {
+                result.append(currentDay)
             }
         }
         
-        if let currentDay = currentDay {
-            result.append(currentDay)
+        for item in try table.select("tbody").select("tr") {
+            if try item.checkHave(class: .dayHeader) {
+                saveCurrentDayIfNeeded()
+                currentDay = .init(items: [], name: try item.getTextInTr(byPosition: .dayName))
+            }
+            
+            let timeRange = try item.getTextInTr(byPosition: .timeRange)
+            var info: SchedulerItem.Information? = nil
+            
+            if !(try item.checkHave(class: .noInfo)) {
+                info = .init(
+                    weeks: try item.getTextInTr(byPosition: .weeks).split(separator: " ").map({Int($0)!}),
+                    subject: try item.getTextInTr(byPosition: .subject),
+                    type: try item.getTextInTr(byPosition: .type),
+                    lecturer: try item.getTextInTr(byPosition: .lecturer),
+                    audience: try item.getTextInTr(byPosition: .audience))
+            }
+            
+            var schedulerItem = SchedulerItem(timeRange: timeRange, info: info)
+            currentDay?.items.append(schedulerItem)
         }
+        
+        saveCurrentDayIfNeeded()
         
         return result
     }
@@ -48,10 +50,7 @@ class StringParser: ParserProtocol {
     func parseScheduler(input: String) throws -> [SchedulerDay] {
         var result: [SchedulerDay] = .init()
         let doc: Document = try SwiftSoup.parse(input)
-        let table = try doc.select("tbody").first()
-        if let table = table {
-            result = try parse(table: table)
-        }
+        result = try parse(table: try doc.getSchedulerTable())
         return result
     }
     
@@ -69,7 +68,7 @@ class StringParser: ParserProtocol {
         return try parseSelect(input: input, name: "student_group_id", initResult: {
             .init(id: Int(try $0.val())!, name: try $0.text())
         })
-    }
+    } 
     
     func parseSemesters(input: String) throws -> [Semester] {
         return try parseSelect(input: input, name: "schedule_semestr_id", initResult: {
@@ -80,10 +79,44 @@ class StringParser: ParserProtocol {
 }
 
 extension Element {
+    fileprivate enum TableRowClass: String {
+        case dayHeader = "dayheader"
+        case noInfo = "noinfo"
+    }
+    
+    fileprivate enum DataPositions: Int {
+        case dayName = 0
+        case timeRange = 1
+        case weeks = 2
+        case subject = 3
+        case type = 4
+        case lecturer = 5
+        case audience = 6
+    }
+    
+    fileprivate func checkHave(class className: TableRowClass) throws -> Bool {
+        return try self.attr("class").split(separator: " ").contains(where: {$0 == className.rawValue})
+    }
+    
+    fileprivate func getSchedulerTable() throws -> Element {
+        guard let table = try self.select("table").first() else {
+            throw HTMLParser.ParseError.findSchedulerTable
+        }
+        return table
+    }
+    
     fileprivate func getTextFormTd() throws -> String {
         guard let text = try self.select("p").first()?.text() else {
-            throw StringParser.ParseError.errorInFindText
+            throw HTMLParser.ParseError.findText
+        }
+        return text
+    }
+    
+    fileprivate func getTextInTr(byPosition position: DataPositions) throws -> String {
+        guard let text = try self.select("td")[position.rawValue].select("p").first()?.text() else {
+            throw HTMLParser.ParseError.findText
         }
         return text
     }
 }
+ 
