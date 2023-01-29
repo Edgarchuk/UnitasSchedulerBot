@@ -1,17 +1,36 @@
 
 import Foundation
 
-class FileDataContainer<Key: Codable & Hashable, DataType: Codable> {
+class FileDataContainer<Key: Codable & Hashable, Value: Codable> {
     
-    private var data = [Key: DataType]()
+    @Atomic private var data = load() ?? [Key: Value].init()
     
-    subscript(key: Key) -> DataType? {
+    subscript(key: Key) -> Value? {
         get {
             return data[key]
         }
         set(value) {
             data[key] = value
+            try? saveToDisk()
         }
+    }
+    
+    static func load() -> [Key: Value]? {
+        let fileURL = Resources.cacheURL
+        guard let data = FileManager.default.contents(atPath: fileURL.path) else { return nil }
+        do {
+            return try JSONDecoder().decode([Key: Value].self, from: data)
+        } catch(let error) {
+            print(error)
+            return nil
+        }
+    }
+
+    func saveToDisk() throws {
+
+        let fileURL = Resources.cacheURL
+        let data = try JSONEncoder().encode(data)
+        try data.write(to: fileURL)
     }
 }
 
@@ -29,7 +48,7 @@ protocol UserDataContainer {
 }
 
 
-extension FileDataContainer: UserDataContainer where DataType == UserData, Key == Int64 {
+extension FileDataContainer: UserDataContainer where Value == UserData, Key == Int64 {
     func getGroupId(key: Key) -> Int64? {
         return self[key]?.groupId
     }
