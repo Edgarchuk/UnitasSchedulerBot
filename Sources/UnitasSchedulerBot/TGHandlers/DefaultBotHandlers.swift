@@ -69,7 +69,7 @@ final class DefaultBotHandlers {
                                                                                              callbackData: "semester \(userId) \($0.id)")]})
             let keyboard: TGInlineKeyboardMarkup = .init(inlineKeyboard: buttons)
             let params: TGSendMessageParams = .init(chatId: .chat(userId),
-                                                    text: "",
+                                                    text: "Выберите семестр",
                                                     replyMarkup: .inlineKeyboardMarkup(keyboard))
             try bot.sendMessage(params: params)
         }
